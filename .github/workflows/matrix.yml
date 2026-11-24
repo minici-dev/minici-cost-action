@@ -1,0 +1,55 @@
+name: MiniCI Runner Matrix
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-13, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cargo build --locked --release --manifest-path crates/minici/Cargo.toml
+          ext=""
+          [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          echo "MINICI_BIN=$PWD/crates/minici/target/release/minici$ext" >> "$GITHUB_ENV"
+      - name: Version
+        run: '"$MINICI_BIN" --version'
+      - name: Help
+        run: '"$MINICI_BIN" --help'
+      - name: Offline command on sample workflow
+        run: |
+          sample="$(mktemp -d)"
+          printf '%s\n' 'name: sample' 'on: push' 'jobs:' '  test:' '    runs-on: ubuntu-latest' '    steps:' '      - run: echo hi' > "$sample/ci.yml"
+          "$MINICI_BIN" shrink --path "$sample/ci.yml"
+      - name: Installer (unix)
+        if: runner.os != 'Windows'
+        env:
+          MINICI_INSTALL_DIR: ${{ runner.temp }}/minici-bin
+        run: |
+          bash scripts/install.sh
+          "$MINICI_INSTALL_DIR/minici" --version
+      # Windows: scripts/install.sh rejects MINGW/MSYS (exits "Unsupported OS"), and no .ps1 equivalent exists, so this step is skipped there.
+
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Invoke MiniCI Cost Action (Self-Test)
+        uses: ./
+        with:
+          path: "."
+          tier: "paid"
